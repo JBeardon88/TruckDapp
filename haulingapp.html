@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Decentralized Shipping App with Maps</title>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDeb8VJ-6dZhVVZdYYDs9qcLHvbvvAh2W8&libraries=places"></script>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background: url('C:/Users/jaybe/Documents/vroom/redtruck.png') repeat-y center;
+            background-color: #f4f4f4;
+        }
+        .container {
+            max-width: 800px;
+            margin: auto;
+            background: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+            position: relative;
+            z-index: 2;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .card {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.05);
+        }
+        .input-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"], input[type="number"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        #map {
+            height: 300px;
+            width: 100%;
+            margin-bottom: 15px;
+            border-radius: 10px;
+        }
+        #estimatedPrice {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .center {
+            text-align: center;
+        }
+        /* Truck animation */
+        @keyframes drive {
+            0% {
+                left: -200px;
+            }
+            100% {
+                left: 100%;
+            }
+        }
+        .truck, .truck-upside-down {
+            position: fixed;
+            left: -200px;
+            width: 150px;
+            animation: drive 5s ease-in-out forwards;
+        }
+        .truck {
+            bottom: 20px;
+        }
+        .truck-upside-down {
+            top: 20px;
+            transform: rotate(180deg);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Decentralized Shipping App with Maps</h1>
+        
+        <div class="card">
+            <h2>Route Information</h2>
+            <div id="map"></div>
+            <div class="input-group">
+                <label for="start">Start Location:</label>
+                <input type="text" id="start" placeholder="Enter start location">
+            </div>
+            <div class="input-group">
+                <label for="end">End Location:</label>
+                <input type="text" id="end" placeholder="Enter end location">
+            </div>
+            <div class="input-group">
+                <label for="weight">Cargo Weight (kg):</label>
+                <input type="number" id="weight" placeholder="Enter cargo weight">
+            </div>
+            <div class="input-group">
+                <label for="fuelPrice">Current Fuel Price ($/L):</label>
+                <input type="number" id="fuelPrice" placeholder="Enter fuel price">
+            </div>
+            <div class="center">
+                <button onclick="calculateRoute()">Calculate Route and Price</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Estimated Baseline Price</h2>
+            <p id="estimatedPrice">$0.00</p>
+            <p id="distanceInfo"></p>
+        </div>
+    </div>
+
+    <!-- Truck Images -->
+    <img src="C:/Users/jaybe/Documents/vroom/vroomvroomtruck.png" class="truck" alt="Truck">
+    <img src="C:/Users/jaybe/Documents/vroom/vroomvroomtruck.png" class="truck-upside-down" alt="Truck Upside Down">
+
+    <!-- Engine Sound -->
+    <audio id="engineSound" src="C:/Users/jaybe/Documents/vroom/engine-rev.wav"></audio>
+
+    <script>
+        let map;
+        let directionsService;
+        let directionsRenderer;
+
+        function initMap() {
+            map = new google.maps.Map(document.getElementById('map'), {
+                center: {lat: 43.6532, lng: -79.3832},
+                zoom: 7
+            });
+            directionsService = new google.maps.DirectionsService();
+            directionsRenderer = new google.maps.DirectionsRenderer();
+            directionsRenderer.setMap(map);
+
+            new google.maps.places.Autocomplete(document.getElementById('start'));
+            new google.maps.places.Autocomplete(document.getElementById('end'));
+
+            playEngineSound();
+            animateTrucks();
+        }
+
+        function calculateRoute() {
+            const start = document.getElementById('start').value;
+            const end = document.getElementById('end').value;
+            const weight = parseFloat(document.getElementById('weight').value);
+            const fuelPrice = parseFloat(document.getElementById('fuelPrice').value);
+
+            const request = {
+                origin: start,
+                destination: end,
+                travelMode: 'DRIVING'
+            };
+
+            directionsService.route(request, function(result, status) {
+                if (status === 'OK') {
+                    directionsRenderer.setDirections(result);
+                    const distance = result.routes[0].legs[0].distance.value / 1000; // Convert to km
+                    document.getElementById('distanceInfo').textContent = `Distance: ${distance.toFixed(2)} km`;
+                    calculatePrice(distance, weight, fuelPrice);
+                }
+            });
+
+            playEngineSound();
+            animateTrucks();
+        }
+
+        function calculatePrice(distance, weight, fuelPrice) {
+            const fuelEfficiency = 0.35; // L/km for a typical truck
+            const wearAndTearPerKm = 0.15; // $ per km
+            const driverRate = 0.5; // $ per km
+            const fixedCosts = 50; // $ per trip
+
+            const fuelCost = distance * fuelEfficiency * fuelPrice;
+            const wearAndTearCost = distance * wearAndTearPerKm;
+            const driverCost = distance * driverRate;
+            const weightCost = weight * 0.01; // Simplified weight factor
+
+            const totalCost = fuelCost + wearAndTearCost + driverCost + fixedCosts + weightCost;
+
+            const baselinePrice = totalCost * 1.1;
+
+            document.getElementById('estimatedPrice').textContent = '$' + baselinePrice.toFixed(2);
+        }
+
+        function playEngineSound() {
+            document.getElementById('engineSound').play();
+        }
+
+        function animateTrucks() {
+            const trucks = document.querySelectorAll('.truck, .truck-upside-down');
+            trucks.forEach(truck => {
+                truck.style.animation = 'none';
+                truck.offsetHeight; // Trigger reflow
+                truck.style.animation = 'drive 5s ease-in-out forwards';
+            });
+        }
+
+        window.onload = initMap;
+    </script>
+</body>
+</html>
